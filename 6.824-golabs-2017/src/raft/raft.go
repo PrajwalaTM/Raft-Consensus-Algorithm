@@ -108,9 +108,9 @@ type Raft struct {
 	matchIndex []int
 	lastLogTerm int
 	lastLogIndex int
-	electiontimeout int
-	heartbeattimeout int
-	isleader bool
+	electiontimeout time.Duration
+	heartbeattimeout time.Duration
+	isLeader bool
 	// Your data here (2A, 2B, 2C).
 	// Look at the paper's Figure 2 for a description of what
 	// state a Raft server must maintain.	
@@ -123,12 +123,12 @@ func (rf *Raft) GetState() (int, bool) {
 	var term int
 	var isleader bool
 	term= rf.currentTerm
-	if(len(nextIndex)==0 || len(matchIndex)==0){
-		isleader=false
-	} else {
-		isleader=true
+	if(rf.isLeader == true){
+		isleader = true
 	}
-	// Your code here (2A).
+	else {
+		isleader = false
+	}
 	return term, isleader
 }
 
@@ -302,12 +302,32 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.lastApplied=0
 	rf.lastLogTerm=0
 	rf.lastLogIndex=0
-	rf.electiontimeout=(rand.Intn(250)+500)*time.Millisecond
-	rf.heartbeattimeout=100*time.Millisecond
+	rf.electiontimeout=(rand.Intn(250)+500)
+	rf.heartbeattimeout=100
 	rf.isleader=false
 	// Your initialization code here (2A, 2B, 2C).
+
+	election_tick := time.NewTicker(time.Millisecond* rf.electiontimeout)
+	heartbeat_tick := time.NewTicker(time.Millisecond* rf.heartbeattimeout)
     
 
+    for {
+    	select{
+    		case <-election_tick.C :{
+    			if(rf.isLeader == false){
+
+    			}
+    			var temp time.Duration
+    			temp = (rand.Intn(250)+500)
+    			election_tick = time.NewTicker(time.Millisecond*rf.temp)
+    		}   
+    		case <-heartbeat_tick.C : {
+    			if(rf.isLeader == true){
+
+    			}
+    		} 				
+    	}
+    }
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
 
