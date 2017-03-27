@@ -19,6 +19,9 @@ package raft
 
 import "sync"
 import "labrpc"
+import "math"
+import "math/rand"
+import "time"
 
 // import "bytes"
 // import "encoding/gob"
@@ -48,6 +51,7 @@ type AppendEntriesArgs struct {
 	Term int
 	LeaderId int
 	PrevLogIndex int
+	PrevLogTerm int
 	Entries []*LogEntry
 	LeaderCommit int
 }
@@ -61,10 +65,33 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	if(args.Term<rf.currentTerm){
 		reply.Success=false
 	}
-	if(rf.*log[args.PrevLogIndex]==nil){
+	else if(rf.*log[args.PrevLogIndex]==nil || rf.*logs[args.PrevLogIndex].Term<args.PrevLogTerm){
 		reply.Success=false
 	}
-	
+	else
+	{
+		if(len(args.*Entries)==0) {
+			reply.Success=true //heartbeat
+		}
+		else if(rf.*log[args.PrevLogIndex+1]!=nil && rf.*log[args.PrevLogIndex+1].Term<(args.*Entries[0]).Term) {
+			for i:=args.PrevLogIndex+1; i <len(rf.*log);i++ {
+				rf.*log[i]=nil
+			}
+			rf.*log[rf.lastLogIndex+1]=args.*Entries[0]
+			rf.lastLogIndex=rf.lastLogIndex+1
+			rf.lastLogTerm=args.*Entries[0].Term
+			reply.Success=true
+		}
+		else {
+			rf.*log[rf.lastLogIndex+1]=args.*Entries[0]
+			rf.lastLogIndex=rf.lastLogIndex+1
+			rf.lastLogTerm=args.*Entries[0].Term
+			reply.Success=true
+		}
+	}
+	if(args.LeaderCommit>rf.commitIndex) {
+		commitIndex=Min(args.LeaderCommit,rf.lastLogIndex)
+	}
 
 }
 type Raft struct {
@@ -79,10 +106,14 @@ type Raft struct {
 	lastApplied int
 	nextIndex  []int
 	matchIndex []int
+	lastLogTerm int
+	lastLogIndex int
+	electiontimeout int
+	heartbeattimeout int
+	isleader bool
 	// Your data here (2A, 2B, 2C).
 	// Look at the paper's Figure 2 for a description of what
-	// state a Raft server must maintain.
-
+	// state a Raft server must maintain.	
 }
 
 // return currentTerm and whether this server
@@ -166,8 +197,9 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		reply.VoteGranted=false
 		reply.Term=rf.currentTerm
 	}
-	if((rf.votedFor==nil || rf.votedFor==args.CandidateId)&&(rf.lastApplied<args.LastLogIndex)){
+	else if((rf.votedFor==nil || rf.votedFor==args.CandidateId)&&(rf.lastLogIndex<args.LastLogIndex || (rf.lastLogTerm==args.LastLogTerm && rf.lastLogIndex<=args.LastLogIndex))){
 		reply.VoteGranted=true
+		rf.currentTerm=Max(rf.currentTerm,args.Term)
 		reply.Term=rf.currentTerm
 	}
 	else{
@@ -263,8 +295,18 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.peers = peers
 	rf.persister = persister
 	rf.me = me
-
+	rf.currentTerm = 0 
+	rf.votedFor=nil
+	//rf.*log[]=nil
+	rf.commitIndex=0
+	rf.lastApplied=0
+	rf.lastLogTerm=0
+	rf.lastLogIndex=0
+	rf.electiontimeout=(rand.Intn(250)+500)*time.Millisecond
+	rf.heartbeattimeout=100*time.Millisecond
+	rf.isleader=false
 	// Your initialization code here (2A, 2B, 2C).
+    
 
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
