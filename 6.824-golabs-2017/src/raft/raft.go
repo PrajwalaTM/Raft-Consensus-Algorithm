@@ -164,7 +164,7 @@ func (rf *Raft) readPersist(data []byte) {
 }
 
 
-
+	
 
 //
 // example RequestVote RPC arguments structure.
@@ -315,7 +315,31 @@ func Make(peers []*labrpc.ClientEnd, me int,
     	select{
     		case <-election_tick.C :{
     			if(rf.isLeader == false){
-
+    				rf.currentTerm = rf.currentTerm + 1
+    				var Arguments RequestVoteArgs
+    				Arguments.Term = rf.currentTerm
+    				Arguments.CandidateId = rf.me
+    				Arguments.lastLogIndex = rf.lastLogIndex
+    				Arguments.lastLogTerm = rf.lastLogTerm
+    				var Reply RequestVoteReply
+    				var vote_count = 0
+    				var no_of_peers = len(rf.peers)
+    				for i:=0; i<no_of_peers;i++{
+    					if(i!=rf.me){
+    						if(sendRequestVote(i,&Arguments,&Reply){
+    							if(Reply.Term > rf.currentTerm){
+    								rf.currentTerm = Reply.term
+    							}
+    							if(Reply.VoteGranted == true){
+    								vote_count++;
+    							}
+    						}
+    					}
+    				}
+    				if(vote_count > no_of_peers/2){
+    					rf.isLeader = true
+    				}
+    				
     			}
     			var temp time.Duration
     			temp = (rand.Intn(250)+500)
