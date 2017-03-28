@@ -62,6 +62,11 @@ type AppendEntriesReply struct {
 }
 
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
+
+	if(rf.isCandidate = true){
+		rf.isFollower = true
+		rf.isCandidate = false
+	}
 	if(args.Term<rf.currentTerm){
 		reply.Success=false
 	}
@@ -111,6 +116,8 @@ type Raft struct {
 	electiontimeout time.Duration
 	heartbeattimeout time.Duration
 	isLeader bool
+	isCandidate bool
+	isFollower bool
 	// Your data here (2A, 2B, 2C).
 	// Look at the paper's Figure 2 for a description of what
 	// state a Raft server must maintain.	
@@ -198,6 +205,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		reply.Term=rf.currentTerm
 	}
 	else if((rf.votedFor==nil || rf.votedFor==args.CandidateId)&&(rf.lastLogIndex<args.LastLogIndex || (rf.lastLogTerm==args.LastLogTerm && rf.lastLogIndex<=args.LastLogIndex))){
+		rf.votedFor = args.CandidateId
 		reply.VoteGranted=true
 		rf.currentTerm=Max(rf.currentTerm,args.Term)
 		reply.Term=rf.currentTerm
@@ -287,7 +295,7 @@ func (rf *Raft) Kill() {
 // recent saved state, if any. applyCh is a channel on which the
 // tester or service expects Raft to send ApplyMsg messages.
 // Make() must return quickly, so it should start goroutines
-// for any long-running work.
+// for any long-running work
 //
 func Make(peers []*labrpc.ClientEnd, me int,
 	persister *Persister, applyCh chan ApplyMsg) *Raft {
@@ -305,6 +313,8 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.electiontimeout=(rand.Intn(250)+500)
 	rf.heartbeattimeout=100
 	rf.isleader=false
+	rf.isFollower = true
+	rf.isCandidate = false
 	// Your initialization code here (2A, 2B, 2C).
 
 	election_tick := time.NewTicker(time.Millisecond* rf.electiontimeout)
@@ -314,7 +324,12 @@ func Make(peers []*labrpc.ClientEnd, me int,
     for {
     	select{
     		case <-election_tick.C :{
-    			if(rf.isLeader == false){
+    			var temp time.Duration
+    			temp = (rand.Intn(250)+500)
+    			election_tick = time.NewTicker(time.Millisecond*rf.temp)
+    			if(rf.isFollower == true || rf.isCandidate == true){
+    				rf.isFollower = false
+    				rf.isCandidate = true
     				rf.currentTerm = rf.currentTerm + 1
     				var Arguments RequestVoteArgs
     				Arguments.Term = rf.currentTerm
@@ -323,6 +338,8 @@ func Make(peers []*labrpc.ClientEnd, me int,
     				Arguments.lastLogTerm = rf.lastLogTerm
     				var Reply RequestVoteReply
     				var vote_count = 0
+    				rf.votedFor = rf.me
+    				vote_count++
     				var no_of_peers = len(rf.peers)
     				for i:=0; i<no_of_peers;i++{
     					if(i!=rf.me){
@@ -341,9 +358,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
     				}
     				
     			}
-    			var temp time.Duration
-    			temp = (rand.Intn(250)+500)
-    			election_tick = time.NewTicker(time.Millisecond*rf.temp)
+    			
     		}   
     		case <-heartbeat_tick.C : {
     			if(rf.isLeader == true){
