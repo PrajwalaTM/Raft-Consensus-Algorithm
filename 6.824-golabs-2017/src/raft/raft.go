@@ -95,7 +95,11 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		}
 	}
 	if(args.LeaderCommit>rf.commitIndex) {
-		commitIndex=Min(args.LeaderCommit,rf.lastLogIndex)
+		rf.commitIndex=Min(args.LeaderCommit,rf.lastLogIndex)
+		if(rf.commitIndex>rf.lastApplied){
+			rf.lastApplied=rf.lastApplied+1
+		}
+
 	}
 
 }
@@ -118,6 +122,7 @@ type Raft struct {
 	isLeader bool
 	isCandidate bool
 	isFollower bool
+	temp Ticker chan
 	// Your data here (2A, 2B, 2C).
 	// Look at the paper's Figure 2 for a description of what
 	// state a Raft server must maintain.	
@@ -200,6 +205,7 @@ type RequestVoteReply struct {
 //
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (2A, 2B).
+	if(args.Term )
 	if (args.Term<rf.currentTerm) {
 		reply.VoteGranted=false
 		reply.Term=rf.currentTerm
@@ -250,7 +256,10 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 	ok := rf.peers[server].Call("Raft.RequestVote", args, reply)
 	return ok
 }
-
+func (rf *Raft) sendAppendEntries(server int, args *RequestVoteArgs, reply *RequestVoteReply) bool {
+	ok := rf.peers[server].Call("Raft.AppendEntries", args, reply)
+	return ok
+}
 
 //
 // the service using Raft (e.g. a k/v server) wants to start
@@ -346,6 +355,10 @@ func Make(peers []*labrpc.ClientEnd, me int,
     						if(sendRequestVote(i,&Arguments,&Reply){
     							if(Reply.Term > rf.currentTerm){
     								rf.currentTerm = Reply.term
+    								//check once
+    								rf.isFollower=true
+    								rf.isCandidate=false
+    								rf.isLeader=false
     							}
     							if(Reply.VoteGranted == true){
     								vote_count++;
@@ -362,7 +375,21 @@ func Make(peers []*labrpc.ClientEnd, me int,
     		}   
     		case <-heartbeat_tick.C : {
     			if(rf.isLeader == true){
-
+    				var Arguments AppendEntriesArgs
+    				Arguments.Term=rf.currentTerm
+    				Arguments.LeaderId=rf.me
+    				Arguments.PrevLogIndex=rf.lastLogIndex
+    				Arguments.LeaderCommit=rf.commitIndex
+    				var Reply AppendEntriesReply
+    				for i:=0; i<no_of_peers;i++{
+    				if(i!=rf.me){
+    				for ok:=false;!ok; {
+    				ok=sendAppendEntries(i,&Arguments,&Reply)
+    				}
+    				if(Reply.Term>rf.currentTerm){
+    					rf.isLeader=false
+    					rf.isFollower=true
+    				}
     			}
     		} 				
     	}
