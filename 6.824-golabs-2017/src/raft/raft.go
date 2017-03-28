@@ -63,6 +63,13 @@ type AppendEntriesReply struct {
 
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
 
+	//Resetting the timer if append entries is received
+	rf.election_tick.Stop()
+	var temp time.Duration
+    temp = (rand.Intn(250)+500)
+    rf.election_tick = time.NewTicker(time.Millisecond*rf.temp) 
+
+
 	if(rf.isCandidate = true){
 		rf.isFollower = true
 		rf.isCandidate = false
@@ -122,7 +129,8 @@ type Raft struct {
 	isLeader bool
 	isCandidate bool
 	isFollower bool
-	temp Ticker chan
+	election_tick *time.Ticker
+	heartbeat_tick *time.Ticker
 	// Your data here (2A, 2B, 2C).
 	// Look at the paper's Figure 2 for a description of what
 	// state a Raft server must maintain.	
@@ -211,6 +219,13 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		reply.Term=rf.currentTerm
 	}
 	else if((rf.votedFor==nil || rf.votedFor==args.CandidateId)&&(rf.lastLogIndex<args.LastLogIndex || (rf.lastLogTerm==args.LastLogTerm && rf.lastLogIndex<=args.LastLogIndex))){
+		//Resetting the timer if it about to grant the vote
+		rf.election_tick.Stop()
+		var temp time.Duration
+    	temp = (rand.Intn(250)+500)
+    	rf.election_tick = time.NewTicker(time.Millisecond*rf.temp) 
+
+
 		rf.votedFor = args.CandidateId
 		reply.VoteGranted=true
 		rf.currentTerm=Max(rf.currentTerm,args.Term)
@@ -325,17 +340,16 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.isFollower = true
 	rf.isCandidate = false
 	// Your initialization code here (2A, 2B, 2C).
-
-	election_tick := time.NewTicker(time.Millisecond* rf.electiontimeout)
-	heartbeat_tick := time.NewTicker(time.Millisecond* rf.heartbeattimeout)
+	rf.election_tick = time.NewTicker(time.Millisecond* rf.electiontimeout)
+	rf.heartbeat_tick = time.NewTicker(time.Millisecond* rf.heartbeattimeout)
     
 
     for {
     	select{
-    		case <-election_tick.C :{
+    		case <-rf.election_tick.C :{
     			var temp time.Duration
     			temp = (rand.Intn(250)+500)
-    			election_tick = time.NewTicker(time.Millisecond*rf.temp)
+    			rf.election_tick = time.NewTicker(time.Millisecond*rf.temp)
     			if(rf.isFollower == true || rf.isCandidate == true){
     				rf.isFollower = false
     				rf.isCandidate = true
@@ -373,7 +387,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
     			}
     			
     		}   
-    		case <-heartbeat_tick.C : {
+    		case <-rf.heartbeat_tick.C : {
     			if(rf.isLeader == true){
     				var Arguments AppendEntriesArgs
     				Arguments.Term=rf.currentTerm
