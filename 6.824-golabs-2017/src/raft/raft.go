@@ -33,6 +33,31 @@ import "time"
 // committed, the peer should send an ApplyMsg to the service (or
 // tester) on the same server, via the applyCh passed to Make().
 //
+type Raft struct {
+	mu        sync.Mutex          // Lock to protect shared access to this peer's state
+	peers     []*labrpc.ClientEnd // RPC end points of all peers
+	persister *Persister          // Object to hold this peer's persisted state
+	me        int                 // this peer's index into peers[]
+	currentTerm int
+	votedFor	int
+	log 		[]*LogEntry
+	commitIndex int
+	lastApplied int
+	nextIndex  []int
+	matchIndex []int
+	lastLogTerm int
+	lastLogIndex int
+	electiontimeout time.Duration
+	heartbeattimeout time.Duration
+	isLeader bool
+	isCandidate bool
+	isFollower bool
+	election_tick *time.Ticker
+	heartbeat_tick *time.Ticker
+	// Your data here (2A, 2B, 2C).
+	// Look at the paper's Figure 2 for a description of what
+	// state a Raft server must maintain.	
+}
 type ApplyMsg struct {
 	Index       int
 	Command     interface{}
@@ -61,6 +86,7 @@ type AppendEntriesReply struct {
 	Success bool
 }
 
+
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
 
 	//Resetting the timer if append entries is received
@@ -69,39 +95,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
     temp = (rand.Intn(250)+500)
     rf.election_tick = time.NewTicker(time.Millisecond*rf.temp) 
 
-
-	if(rf.isCandidate = true){
-		rf.isFollower = true
-		rf.isCandidate = false
-	}
-	if(args.Term<rf.currentTerm){
-		reply.Success=false
-	}
-	else if(rf.*log[args.PrevLogIndex]==nil || rf.*logs[args.PrevLogIndex].Term<args.PrevLogTerm){
-		reply.Success=false
-	}
-	else
-	{
-		if(len(args.*Entries)==0) {
-			reply.Success=true //heartbeat
-		}
-		else if(rf.*log[args.PrevLogIndex+1]!=nil && rf.*log[args.PrevLogIndex+1].Term<(args.*Entries[0]).Term) {
-			for i:=args.PrevLogIndex+1; i <len(rf.*log);i++ {
-				rf.*log[i]=nil
-			}
-			rf.*log[rf.lastLogIndex+1]=args.*Entries[0]
-			rf.lastLogIndex=rf.lastLogIndex+1
-			rf.lastLogTerm=args.*Entries[0].Term
-			reply.Success=true
-		}
-		else {
-			rf.*log[rf.lastLogIndex+1]=args.*Entries[0]
-			rf.lastLogIndex=rf.lastLogIndex+1
-			rf.lastLogTerm=args.*Entries[0].Term
-			reply.Success=true
-		}
-	}
-	if(args.LeaderCommit>rf.commitIndex) {
+    if(args.LeaderCommit>rf.commitIndex) {
 		rf.commitIndex=Min(args.LeaderCommit,rf.lastLogIndex)
 		if(rf.commitIndex>rf.lastApplied){
 			rf.lastApplied=rf.lastApplied+1
@@ -109,32 +103,38 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 
 	}
 
+	if(rf.isCandidate == true){
+		rf.isFollower = true
+		rf.isCandidate = false
+	}
+	
+	if(args.Term<rf.currentTerm){
+		reply.Success=false
+	} else if (rf.log[args.PrevLogIndex]==nil || rf.log[args.PrevLogIndex].Term<args.PrevLogTerm) {
+		reply.Success=false
+	} else {
+		if(len(args.Entries)==0) {
+			reply.Success=true //heartbeat
+		} else if(rf.log[args.PrevLogIndex+1]!=nil && rf.log[args.PrevLogIndex+1].Term<(args.Entries[0]).Term) {
+			for i:=args.PrevLogIndex+1; i <len(rf.log);i++ {
+				rf.log[i]=nil
+			}
+			rf.log[rf.lastLogIndex+1]=args.Entries[0]
+			rf.lastLogIndex=rf.lastLogIndex+1
+			rf.lastLogTerm=args.Entries[0].Term
+			reply.Success=true
+		} else {
+			rf.log[rf.lastLogIndex+1]=args.Entries[0]
+			rf.lastLogIndex=rf.lastLogIndex+1
+			rf.lastLogTerm=args.Entries[0].Term
+			reply.Success=true
+		}
+	}
+	
+
+
 }
-type Raft struct {
-	mu        sync.Mutex          // Lock to protect shared access to this peer's state
-	peers     []*labrpc.ClientEnd // RPC end points of all peers
-	persister *Persister          // Object to hold this peer's persisted state
-	me        int                 // this peer's index into peers[]
-	currentTerm int
-	votedFor	int
-	log 		[]*LogEntry
-	commitIndex int
-	lastApplied int
-	nextIndex  []int
-	matchIndex []int
-	lastLogTerm int
-	lastLogIndex int
-	electiontimeout time.Duration
-	heartbeattimeout time.Duration
-	isLeader bool
-	isCandidate bool
-	isFollower bool
-	election_tick *time.Ticker
-	heartbeat_tick *time.Ticker
-	// Your data here (2A, 2B, 2C).
-	// Look at the paper's Figure 2 for a description of what
-	// state a Raft server must maintain.	
-}
+
 
 // return currentTerm and whether this server
 // believes it is the leader.
@@ -145,8 +145,7 @@ func (rf *Raft) GetState() (int, bool) {
 	term= rf.currentTerm
 	if(rf.isLeader == true){
 		isleader = true
-	}
-	else {
+	} else {
 		isleader = false
 	}
 	return term, isleader
@@ -213,14 +212,12 @@ type RequestVoteReply struct {
 //
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (2A, 2B).
-	if(args.Term )
 	if (args.Term<rf.currentTerm) {
 		reply.VoteGranted=false
 		reply.Term=rf.currentTerm
-	}
-	else if((rf.votedFor==nil || rf.votedFor==args.CandidateId)&&(rf.lastLogIndex<args.LastLogIndex || (rf.lastLogTerm==args.LastLogTerm && rf.lastLogIndex<=args.LastLogIndex))){
+	} else if((rf.votedFor==nil || rf.votedFor==args.CandidateId)&&(rf.lastLogIndex<args.LastLogIndex || (rf.lastLogTerm==args.LastLogTerm && rf.lastLogIndex<=args.LastLogIndex))){
 		//Resetting the timer if it about to grant the vote
-		rf.election_tick.Stop()
+		//rf.election_tick.Stop()
 		var temp time.Duration
     	temp = (rand.Intn(250)+500)
     	rf.election_tick = time.NewTicker(time.Millisecond*rf.temp) 
@@ -230,8 +227,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		reply.VoteGranted=true
 		rf.currentTerm=Max(rf.currentTerm,args.Term)
 		reply.Term=rf.currentTerm
-	}
-	else{
+	} else{
 		reply.VoteGranted=false
 		reply.Term=rf.currentTerm
 	}
@@ -366,7 +362,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
     				var no_of_peers = len(rf.peers)
     				for i:=0; i<no_of_peers;i++{
     					if(i!=rf.me){
-    						if(sendRequestVote(i,&Arguments,&Reply){
+    						if(sendRequestVote(i,&Arguments,&Reply)) {
     							if(Reply.Term > rf.currentTerm){
     								rf.currentTerm = Reply.term
     								//check once
@@ -382,6 +378,11 @@ func Make(peers []*labrpc.ClientEnd, me int,
     				}
     				if(vote_count > no_of_peers/2){
     					rf.isLeader = true
+    					for i:=0; i<no_of_peers;i++{
+    						rf.nextIndex[i]=rf.lastLogIndex+1
+    						rf.matchIndex[i]=0
+    				}
+
     				}
     				
     			}
@@ -408,9 +409,9 @@ func Make(peers []*labrpc.ClientEnd, me int,
     		} 				
     	}
     }
+}
+}
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
-
-
 	return rf
 }
