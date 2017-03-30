@@ -22,6 +22,7 @@ import "labrpc"
 import "math"
 import "math/rand"
 import "time"
+import "fmt"
 
 // import "bytes"
 // import "encoding/gob"
@@ -92,30 +93,35 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	//Resetting the timer if append entries is received
 	rf.election_tick.Stop()
 	var temp time.Duration
-    temp = (rand.Intn(250)+500)
-    rf.election_tick = time.NewTicker(time.Millisecond*rf.temp) 
-
+    temp = time.Duration(rand.Intn(250)+500)
+    rf.election_tick = time.NewTicker(time.Millisecond*temp) 
+    fmt.Printf("checkpoint A\n")
+    fmt.Printf("LeaderCommit %d commitIndex",args.Term)
     if(args.LeaderCommit>rf.commitIndex) {
-		rf.commitIndex=Min(args.LeaderCommit,rf.lastLogIndex)
+    	 fmt.Printf("checkpoint A'")
+		rf.commitIndex=int(math.Min(float64(args.LeaderCommit),float64(rf.lastLogIndex)))
 		if(rf.commitIndex>rf.lastApplied){
 			rf.lastApplied=rf.lastApplied+1
 		}
 
 	}
+	 fmt.Printf("checkpoint B")
 
 	if(rf.isCandidate == true){
 		rf.isFollower = true
 		rf.isCandidate = false
 	}
-	
+	 fmt.Printf("checkpoint c")
 	if(args.Term<rf.currentTerm){
 		reply.Success=false
 	} else if (rf.log[args.PrevLogIndex]==nil || rf.log[args.PrevLogIndex].Term<args.PrevLogTerm) {
 		reply.Success=false
+		 fmt.Printf("checkpoint D")
 	} else {
 		if(len(args.Entries)==0) {
 			reply.Success=true //heartbeat
-		} else if(rf.log[args.PrevLogIndex+1]!=nil && rf.log[args.PrevLogIndex+1].Term<(args.Entries[0]).Term) {
+			 fmt.Printf("checkpoint E")
+		} else if(rf.log[args.PrevLogIndex+1]!=nil && rf.log[args.PrevLogIndex+1] != nil && args.Entries[0]!= nil && rf.log[args.PrevLogIndex+1].Term<(args.Entries[0]).Term) {
 			for i:=args.PrevLogIndex+1; i <len(rf.log);i++ {
 				rf.log[i]=nil
 			}
@@ -123,11 +129,13 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 			rf.lastLogIndex=rf.lastLogIndex+1
 			rf.lastLogTerm=args.Entries[0].Term
 			reply.Success=true
+			 fmt.Printf("checkpoint F")
 		} else {
 			rf.log[rf.lastLogIndex+1]=args.Entries[0]
 			rf.lastLogIndex=rf.lastLogIndex+1
 			rf.lastLogTerm=args.Entries[0].Term
 			reply.Success=true
+			 fmt.Printf("checkpoint g")
 		}
 	}
 	
@@ -212,26 +220,25 @@ type RequestVoteReply struct {
 //
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (2A, 2B).
+	fmt.Printf("Term of args%d\n",args.Term)
 	if (args.Term<rf.currentTerm) {
 		reply.VoteGranted=false
 		reply.Term=rf.currentTerm
-	} else if((rf.votedFor==nil || rf.votedFor==args.CandidateId)&&(rf.lastLogIndex<args.LastLogIndex || (rf.lastLogTerm==args.LastLogTerm && rf.lastLogIndex<=args.LastLogIndex))){
+	} else if((rf.votedFor==-1 || rf.votedFor==args.CandidateId)&&(rf.lastLogIndex<args.LastLogIndex || (rf.lastLogTerm==args.LastLogTerm && rf.lastLogIndex<=args.LastLogIndex))){
 		//Resetting the timer if it about to grant the vote
 		//rf.election_tick.Stop()
-		var temp time.Duration
-    	temp = (rand.Intn(250)+500)
-    	rf.election_tick = time.NewTicker(time.Millisecond*rf.temp) 
-
-
+		//var temp time.Duration
+    	//temp = (rand.Intn(250)+500)
+    	//rf.election_tick = time.NewTicker(time.Millisecond*temp) 
 		rf.votedFor = args.CandidateId
 		reply.VoteGranted=true
-		rf.currentTerm=Max(rf.currentTerm,args.Term)
+		rf.currentTerm=int(math.Max(float64(rf.currentTerm),float64(args.Term)))
 		reply.Term=rf.currentTerm
 	} else{
 		reply.VoteGranted=false
 		reply.Term=rf.currentTerm
 	}
-
+	fmt.Printf("Vote sent %d\n",rf.me)
 }
 
 //
@@ -267,7 +274,7 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 	ok := rf.peers[server].Call("Raft.RequestVote", args, reply)
 	return ok
 }
-func (rf *Raft) sendAppendEntries(server int, args *RequestVoteArgs, reply *RequestVoteReply) bool {
+func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *AppendEntriesReply) bool {
 	ok := rf.peers[server].Call("Raft.AppendEntries", args, reply)
 	return ok
 }
@@ -324,28 +331,33 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.persister = persister
 	rf.me = me
 	rf.currentTerm = 0 
-	rf.votedFor=nil
-	//rf.*log[]=nil
+	rf.votedFor=-1
+	rf.log= make([]*LogEntry,10)
+	rf.nextIndex = make([]int,len(peers))
+	rf.matchIndex = make([]int, len(peers))
 	rf.commitIndex=0
 	rf.lastApplied=0
 	rf.lastLogTerm=0
 	rf.lastLogIndex=0
-	rf.electiontimeout=(rand.Intn(250)+500)
+	rf.electiontimeout=time.Duration(rand.Intn(250)+500)
 	rf.heartbeattimeout=100
-	rf.isleader=false
+	rf.isLeader=false
 	rf.isFollower = true
 	rf.isCandidate = false
 	// Your initialization code here (2A, 2B, 2C).
 	rf.election_tick = time.NewTicker(time.Millisecond* rf.electiontimeout)
 	rf.heartbeat_tick = time.NewTicker(time.Millisecond* rf.heartbeattimeout)
+    if(rf.log[1] == nil){
+    	fmt.Printf("Nil argument")
+    }
     
-
+	go func() {
     for {
     	select{
     		case <-rf.election_tick.C :{
     			var temp time.Duration
-    			temp = (rand.Intn(250)+500)
-    			rf.election_tick = time.NewTicker(time.Millisecond*rf.temp)
+    			temp = time.Duration(rand.Intn(250)+500)
+    			rf.election_tick = time.NewTicker(time.Millisecond*temp)
     			if(rf.isFollower == true || rf.isCandidate == true){
     				rf.isFollower = false
     				rf.isCandidate = true
@@ -353,18 +365,20 @@ func Make(peers []*labrpc.ClientEnd, me int,
     				var Arguments RequestVoteArgs
     				Arguments.Term = rf.currentTerm
     				Arguments.CandidateId = rf.me
-    				Arguments.lastLogIndex = rf.lastLogIndex
-    				Arguments.lastLogTerm = rf.lastLogTerm
+    				Arguments.LastLogIndex = rf.lastLogIndex
+    				Arguments.LastLogTerm = rf.lastLogTerm
     				var Reply RequestVoteReply
     				var vote_count = 0
     				rf.votedFor = rf.me
     				vote_count++
-    				var no_of_peers = len(rf.peers)
+    				var no_of_peers=len(rf.peers)
+    				fmt.Printf("%d\n",no_of_peers)
     				for i:=0; i<no_of_peers;i++{
     					if(i!=rf.me){
-    						if(sendRequestVote(i,&Arguments,&Reply)) {
+    						if(rf.sendRequestVote(i,&Arguments,&Reply)) {
+    							fmt.Printf("Sending Request Vote %d\n",i)
     							if(Reply.Term > rf.currentTerm){
-    								rf.currentTerm = Reply.term
+    								rf.currentTerm = Reply.Term
     								//check once
     								rf.isFollower=true
     								rf.isCandidate=false
@@ -373,13 +387,16 @@ func Make(peers []*labrpc.ClientEnd, me int,
     							if(Reply.VoteGranted == true){
     								vote_count++;
     							}
+    							fmt.Printf("vote count %d of %d\n",vote_count,rf.me)
     						}
     					}
     				}
     				if(vote_count > no_of_peers/2){
     					rf.isLeader = true
+    					fmt.Printf("%t\n",rf.isLeader)
     					for i:=0; i<no_of_peers;i++{
     						rf.nextIndex[i]=rf.lastLogIndex+1
+    						fmt.Printf("Next index %d\n",rf.nextIndex[i])
     						rf.matchIndex[i]=0
     				}
 
@@ -390,18 +407,24 @@ func Make(peers []*labrpc.ClientEnd, me int,
     		}   
     		case <-rf.heartbeat_tick.C : {
     			if(rf.isLeader == true){
-    				var Arguments AppendEntriesArgs
-    				Arguments.Term=rf.currentTerm
-    				Arguments.LeaderId=rf.me
-    				Arguments.PrevLogIndex=rf.lastLogIndex
-    				Arguments.LeaderCommit=rf.commitIndex
-    				var Reply AppendEntriesReply
+    				fmt.Printf("heartbeat sent %d",rf.me)
+    				var Arguments1 AppendEntriesArgs
+    				Arguments1.Term=rf.currentTerm
+    				Arguments1.LeaderId=rf.me
+    				Arguments1.PrevLogIndex=rf.lastLogIndex
+    				Arguments1.LeaderCommit=rf.commitIndex
+    				Arguments1.Entries=make([]*LogEntry,10)
+    				fmt.Printf("Leader commit %d\n",Arguments1.LeaderCommit)
+    				var Reply1 AppendEntriesReply
+    				var no_of_peers=len(rf.peers)
     				for i:=0; i<no_of_peers;i++{
     				if(i!=rf.me){
     				for ok:=false;!ok; {
-    				ok=sendAppendEntries(i,&Arguments,&Reply)
+    				fmt.Printf("sending append entries")
+    				ok=rf.sendAppendEntries(i,&Arguments1,&Reply1)
+    				fmt.Printf("append entries sent")
     				}
-    				if(Reply.Term>rf.currentTerm){
+    				if(Reply1.Term>rf.currentTerm){
     					rf.isLeader=false
     					rf.isFollower=true
     				}
@@ -411,6 +434,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
     }
 }
 }
+}()
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
 	return rf
