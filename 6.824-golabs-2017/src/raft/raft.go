@@ -82,7 +82,7 @@ type AppendEntriesArgs struct {
 	LeaderId int
 	PrevLogIndex int
 	PrevLogTerm int
-	Entries []*LogEntry
+//	Entries []*LogEntry
 	LeaderCommit int
 }
 
@@ -96,8 +96,9 @@ type AppendEntriesReply struct {
 // AppendEntries RPC definition
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
 
+ 	fmt.Printf("LeaderCommit %d commitIndex",args.Term)
 	//Resetting the timer if append entries is received
-	rf.election_tick.Stop()
+	/*rf.election_tick.Stop()
 	var temp time.Duration
     temp = time.Duration(rand.Intn(250)+500)
     rf.election_tick = time.NewTicker(time.Millisecond*temp) 
@@ -150,7 +151,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 			 fmt.Printf("checkpoint g")
 		}
 	}
-	
+	*/
 
 
 }
@@ -255,6 +256,30 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	fmt.Printf("Vote sent %d\n",rf.me)
 }
 
+func (rf *Raft) RequestVote1(args *RequestVoteArgs, reply *RequestVoteReply) {
+	// Your code here (2A, 2B).
+	fmt.Printf("Term of args%d\n",args.Term)
+	// ignore candidate's request if candidate's term is lesser than receiver's term
+	if (args.Term<rf.currentTerm) {
+		reply.VoteGranted=false
+		reply.Term=rf.currentTerm
+	} else if((rf.votedFor==-1 || rf.votedFor==args.CandidateId)&&(rf.lastLogIndex<args.LastLogIndex || (rf.lastLogTerm==args.LastLogTerm && rf.lastLogIndex<=args.LastLogIndex))){
+		// Vote if all conditions are satisfied and receiver hasn't voted for any other candidate
+		//Resetting the timer if it is about to grant the vote
+		//rf.election_tick.Stop()
+		//var temp time.Duration
+    	//temp = (rand.Intn(250)+500)
+    	//rf.election_tick = time.NewTicker(time.Millisecond*temp) 
+		rf.votedFor = args.CandidateId
+		reply.VoteGranted=true
+		rf.currentTerm=int(math.Max(float64(rf.currentTerm),float64(args.Term)))
+		reply.Term=rf.currentTerm
+	} else{
+		reply.VoteGranted=false
+		reply.Term=rf.currentTerm
+	}
+	fmt.Printf("Vote sent %d\n",rf.me)
+}
 //
 // example code to send a RequestVote RPC to a server.
 // server is the index of the target server in rf.peers[].
@@ -287,6 +312,10 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 // functions for RPC calls
 func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *RequestVoteReply) bool {
 	ok := rf.peers[server].Call("Raft.RequestVote", args, reply)
+	return ok
+}
+func (rf *Raft) sendRequestVote1(server int, args *RequestVoteArgs, reply *RequestVoteReply) bool {
+	ok := rf.peers[server].Call("Raft.RequestVote1", args, reply)
 	return ok
 }
 func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *AppendEntriesReply) bool {
@@ -396,7 +425,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
     				fmt.Printf("%d\n",no_of_peers)
     				for i:=0; i<no_of_peers;i++{
     					if(i!=rf.me){
-    						if(rf.sendRequestVote(i,&Arguments,&Reply)) {
+    						if(rf.sendRequestVote1(i,&Arguments,&Reply)) {
     							//fmt.Printf("Sending Request Vote %d\n",i)
     							// When candidate's term is lesser than receiver's term
     							if(Reply.Term > rf.currentTerm){
@@ -438,8 +467,8 @@ func Make(peers []*labrpc.ClientEnd, me int,
     				Arguments1.LeaderId=rf.me
     				Arguments1.PrevLogIndex=rf.lastLogIndex
     				Arguments1.LeaderCommit=rf.commitIndex
-    				Arguments1.Entries=make([]*LogEntry,10)
-    				//fmt.Printf("Leader commit %d\n",Arguments1.LeaderCommit)
+    				//	Arguments1.Entries=make([]*LogEntry,10)
+    				//  fmt.Printf("Leader commit %d\n",Arguments1.LeaderCommit)
     				var Reply1 AppendEntriesReply
     				var no_of_peers=len(rf.peers)
     				for i:=0; i<no_of_peers;i++{
