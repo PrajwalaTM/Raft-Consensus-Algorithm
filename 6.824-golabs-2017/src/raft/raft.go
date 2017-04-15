@@ -39,6 +39,21 @@ const (
 HBINTERVAL = 50* time.Millisecond
 )
 
+
+type ApplyMsg struct {
+	Index       int
+	Command     interface{}
+	UseSnapshot bool   // ignore for lab2; only used in lab3
+	Snapshot    []byte // ignore for lab2; only used in lab3
+}
+
+// struct to store log entries
+type LogEntry struct {
+	Term int
+	Index int
+	Command interface{}  
+}
+
 type Raft struct {
 
 	mu        sync.Mutex          // Lock to protect shared access to this peer's state
@@ -81,19 +96,6 @@ type Raft struct {
 	// Look at the paper's Figure 2 for a description of what
 	// state a Raft server must maintain.
 		
-}
-type ApplyMsg struct {
-	Index       int
-	Command     interface{}
-	UseSnapshot bool   // ignore for lab2; only used in lab3
-	Snapshot    []byte // ignore for lab2; only used in lab3
-}
-
-// struct to store log entries
-type LogEntry struct {
-	Term int
-	Index int
-	Command interface{}  
 }
 //
 // example RequestVote RPC arguments structure.
@@ -183,7 +185,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	} 
 	term := rf.GetLastTerm()
 	index := rf.GetLastIndex()
-
+	//fmt.Printf("Entered RequestVote")
 	if((rf.votedFor==-1 || rf.votedFor==args.CandidateId)&&(term<args.LastLogIndex || (term==args.LastLogTerm && index<=args.LastLogIndex))){
 		// Vote if all conditions are satisfied and receiver hasn't voted for any other candidate
 		//Resetting the timer if it is about to grant the vote
@@ -191,14 +193,14 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		//var temp time.Duration
     	//temp = (rand.Intn(250)+500)
     	//rf.election_tick = time.NewTicker(time.Millisecond*temp) 
-    	rf.chanGrantVote <- true
+    	
 		fmt.Printf("Vote sent %d\n",rf.me)
 		rf.votedFor = args.CandidateId
 		reply.VoteGranted=true
 		rf.isLeader = false
 		rf.isCandidate = false
 		rf.isFollower = true
-
+		rf.chanGrantVote <- true
 //		rf.currentTerm=int(math.Max(float64(rf.currentTerm),float64(args.Term)))
 	//	reply.Term=rf.currentTerm
 	} else{
@@ -276,6 +278,69 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 
 	return
 }
+// functions for RPC calls
+func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *RequestVoteReply) bool {
+	ok := rf.peers[server].Call("Raft.RequestVote", args, reply)
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	//fmt.Printf("inside SRV")
+	if ok {
+		term := rf.currentTerm
+		if(rf.isCandidate==false){
+		return !ok
+	}
+	if(args.Term!=term){
+		return !ok
+	}
+	if reply.Term > term {
+		rf.currentTerm=reply.Term
+		rf.isFollower=true
+		rf.isCandidate=false
+		rf.isLeader=false
+		rf.votedFor=-1
+	}
+	if(reply.VoteGranted==true){
+		rf.vote_count++;
+		if(rf.isCandidate==true && rf.vote_count>len(rf.peers)/2){
+			rf.chanLeader<-true
+		}
+	}
+	
+}
+return ok
+}
+func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *AppendEntriesReply) bool {
+	ok := rf.peers[server].Call("Raft.AppendEntries", args, reply)
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	if ok {
+		if rf.isLeader== false {
+			return ok
+		}
+		if args.Term!=rf.currentTerm {
+			return ok
+		}
+	
+	if reply.Term > rf.currentTerm {
+		rf.currentTerm=reply.Term
+		rf.isFollower=true
+		rf.isLeader=false
+		rf.isCandidate=false
+		rf.votedFor=-1
+		return ok
+	}
+	if reply.Success {
+		if(len(args.Entries)>0) {
+			//rf.nextIndex[server] = args.Entries[len(args.Entries) - 1].Index + 1
+			rf.nextIndex[server]=reply.NextIndex			
+			rf.matchIndex[server]=rf.nextIndex[server]-1
+		}
+	}else{
+			rf.nextIndex[server]=reply.NextIndex
+		}
+	}
+	return ok
+}
 
 
 
@@ -291,10 +356,11 @@ func (rf* Raft) broadcastRequestArgs() {
     Arguments.CandidateId = rf.me
     Arguments.LastLogIndex = rf.GetLastIndex()
     Arguments.LastLogTerm = rf.GetLastTerm()
+    rf.mu.Unlock()
     var no_of_peers=len(rf.peers)
     //fmt.Printf("%d\n",no_of_peers)
     for i:=0; i<no_of_peers;i++{
-    				if(i!=rf.me){
+    				if(i!=rf.me && rf.isCandidate==true){
     						go func(i int) {
     						var Reply RequestVoteReply
     						rf.sendRequestVote(i,&Arguments,&Reply)
@@ -327,6 +393,7 @@ func (rf *Raft) broadcastAppendEntriesargs() {
 	}
 	for i:=range(rf.peers) {
 		if(i!=rf.me && rf.isLeader==true){
+			if rf.nextIndex[i]>baseIndex {
 			var Arguments AppendEntriesArgs
 			Arguments.Term=rf.currentTerm
     				Arguments.LeaderId=rf.me
@@ -340,6 +407,7 @@ func (rf *Raft) broadcastAppendEntriesargs() {
     					rf.sendAppendEntries(i,&args,&Reply)
     				}(i,Arguments)
 		}
+	}
 	}
 }
 func (rf *Raft) persist() {
@@ -398,65 +466,6 @@ func (rf *Raft) readPersist(data []byte) {
 // that the caller passes the address of the reply struct with &, not
 // the struct itself.
 //
-// functions for RPC calls
-func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *RequestVoteReply) bool {
-	ok := rf.peers[server].Call("Raft.RequestVote", args, reply)
-	rf.mu.Lock()
-	defer rf.mu.Unlock()
-	if ok {
-		term := rf.currentTerm
-		if(rf.isCandidate==false){
-		return !ok
-	}
-	if(args.Term!=term){
-		return !ok
-	}
-	if reply.Term > term {
-		rf.currentTerm=reply.Term
-		rf.isFollower=true
-		rf.isCandidate=false
-		rf.isLeader=false
-		rf.votedFor=-1
-	}
-	if(reply.VoteGranted==true){
-		rf.vote_count++;
-		if(rf.isCandidate==true && rf.vote_count>len(rf.peers)/2){
-			rf.chanLeader<-true
-		}
-	}
-	
-}
-return ok
-}
-func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *AppendEntriesReply) bool {
-	ok := rf.peers[server].Call("Raft.AppendEntries", args, reply)
-	rf.mu.Lock()
-	defer rf.mu.Unlock()
-	if ok {
-		if rf.isLeader== true {
-			return ok
-		}
-		if args.Term!=rf.currentTerm {
-			return ok
-		}
-	
-	if reply.Term > rf.currentTerm {
-		rf.currentTerm=reply.Term
-		rf.isFollower=true
-		rf.isLeader=false
-		rf.isCandidate=false
-		rf.votedFor=-1
-		return ok
-	}
-	if reply.Success {
-		if(len(args.Entries)>0) {
-			rf.nextIndex[server]=reply.NextIndex
-			rf.matchIndex[server]=rf.nextIndex[server]-1
-		}
-	}
-	}
-	return ok
-}
 
 //
 // the service using Raft (e.g. a k/v server) wants to start
@@ -527,6 +536,12 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.isLeader=false
 	rf.isFollower = true
 	rf.isCandidate = false
+
+	rf.chanCommit=make(chan bool,100)
+	rf.chanAppendEntry=make(chan bool,100)
+	rf.chanGrantVote=make(chan bool,100)
+	rf.chanLeader=make(chan bool,100)
+	rf.chanApply=applyCh
 
 	// Your initialization code here (2A, 2B, 2C).
 	//rf.election_tick = time.NewTicker(time.Millisecond* rf.electiontimeout)
